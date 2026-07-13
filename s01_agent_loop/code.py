@@ -84,11 +84,19 @@ def run_bash(command: str) -> str:
 # ── The core pattern: a while loop that calls tools until the model stops ──
 def agent_loop(messages: list):
     while True:
+        print("---message----")
+        print(messages)
+        print("-------")
+
         response = client.messages.create(
             model=MODEL, system=SYSTEM, messages=messages,
             tools=TOOLS, max_tokens=8000,
         )
-
+        
+        print("---message----")
+        print(response.content)
+        print("-------")
+    
         # Append assistant turn
         messages.append({"role": "assistant", "content": response.content})
 
