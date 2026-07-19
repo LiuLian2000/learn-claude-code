@@ -115,6 +115,7 @@ def agent_loop(messages: list):
                 print(f"\033[33m$ {block.input['command']}\033[0m")
                 output = run_bash(block.input["command"])
                 print(output[:200])
+                # content里可以放文字，也可以放这种json，那边自动识别
                 results.append({
                     "type": "tool_result",
                     "tool_use_id": block.id,

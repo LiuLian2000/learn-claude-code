@@ -1,3 +1,5 @@
+# -- Active: 1731326429981@@127.0.0.1@3306
+# -- Active: 1731326429981@@127.0.0.1@330681@@127.0.0.1@3306
 #!/usr/bin/env python3
 """
 s02: Tool Use — 在 s01 基础上新增 4 个工具 + 分发映射。
@@ -13,7 +15,8 @@ s02: Tool Use — 在 s01 基础上新增 4 个工具 + 分发映射。
 循环本身（agent_loop）与 s01 完全一致。
 """
 
-import os, subprocess
+import json, os, subprocess
+from datetime import datetime
 from pathlib import Path
 
 try:
@@ -62,7 +65,7 @@ def run_bash(command: str) -> str:
 # ═══════════════════════════════════════════════════════════
 #  NEW in s02: 4 个新工具
 # ═══════════════════════════════════════════════════════════
-
+# 判断当前路径是否属于 WORKDIR 目录及其子目录。
 def safe_path(p: str) -> Path:
     path = (WORKDIR / p).resolve()
     if not path.is_relative_to(WORKDIR):
@@ -147,6 +150,19 @@ TOOL_HANDLERS = {
 #  s02: output = TOOL_HANDLERS[block.name](**block.input)
 # ═══════════════════════════════════════════════════════════
 
+def _to_serializable(obj):
+    """递归将 Anthropic SDK 对象转为可 JSON 序列化的字典/基本类型。"""
+    if hasattr(obj, "model_dump"):
+        return obj.model_dump()
+    if hasattr(obj, "dict"):
+        return obj.dict()
+    if isinstance(obj, dict):
+        return {k: _to_serializable(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_to_serializable(v) for v in obj]
+    return str(obj)
+
+
 def agent_loop(messages: list):
     while True:
         response = client.messages.create(
@@ -156,6 +172,14 @@ def agent_loop(messages: list):
         messages.append({"role": "assistant", "content": response.content})
 
         if response.stop_reason != "tool_use":
+            # ── 循环结束，保存完整 Messages ──
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            save_dir = WORKDIR / "conversations" / f"trace_{timestamp}"
+            save_dir.mkdir(parents=True, exist_ok=True)
+            (save_dir / "messages.json").write_text(
+                json.dumps(messages, indent=2, ensure_ascii=False, default=_to_serializable)
+            )
+            print(f"\n\033[32m✓ Messages saved to {save_dir / 'messages.json'}\033[0m")
             return
 
         results = []
@@ -168,7 +192,42 @@ def agent_loop(messages: list):
                 results.append({"type": "tool_result", "tool_use_id": block.id, "content": output})
 
         messages.append({"role": "user", "content": results})
+#---------messages
+# {'role': 'user', 'content': '当前目录下有什么文件'}
+# {'role': 'assistant', 'content': [ThinkingBlock(signature='1c7e7656-2573-4ca9-a81c-83e3462511d7', 
+# thinking='The user wants to know what files are in the current directory. Let me run a command to list them.', 
+# type='thinking'), 
+# ToolUseBlock(id='call_00_HAJXTDwGSzQ5WSfyVLCX6170', 
+# caller=None, input={'command': 'ls -la'}, name='bash', type='tool_use')]}
+# {'role': 'user', 'content': [{'type': 'tool_result', 'tool_use_id': 'call_00_HAJXTDwGSzQ5WSfyVLCX6170', 
+# 'content': "'ls' �����ڲ����ⲿ���\ue8ecҲ���ǿ����еĳ���\n���������ļ���"}]}
+# {'role': 'assistant', 'content': [ThinkingBlock(signature='110023a5-8772-4e57-95df-b91d023044e5', 
+# thinking="The command didn't work properly, probably because of encoding issues with the Windows command prompt." \
+# " Let me try using PowerShell or the full path.", type='thinking'), 
+# ToolUseBlock(id='call_00_Ttbh3PG1l11Sh4X1b36y0742', caller=None, input={'command': 'cmd /c "dir /b"'}, 
+#              name='bash', type='tool_use')]}
+#--------response
+# response: Message(id='110023a5-8772-4e57-95df-b91d023044e5', 
+# container=None, content=[ThinkingBlock(signature='110023a5-8772-4e57-95df-b91d023044e5', 
+# thinking="The command didn't work properly, probably because of encoding issues with the Windows command prompt. " \
+# "Let me try using PowerShell or the full path.", type='thinking'), 
+# ToolUseBlock(id='call_00_Ttbh3PG1l11Sh4X1b36y0742', caller=None, input={'command': 'cmd /c "dir /b"'},
+#               name='bash', type='tool_use')], 
+#               model='deepseek-v4-flash', role='assistant', 
+#               stop_details=None, stop_reason='tool_use', stop_sequence=None, type='message', 
+#               usage=Usage(cache_creation=None, cache_creation_input_tokens=0, cache_read_input_tokens=512, 
+# inference_geo=None, input_tokens=135, output_tokens=78, output_tokens_details=None, server_tool_use=None, 
+# service_tier='standard'))
 
+# 停止的时候 stop_reason='end_turn'
+# Message(id='4be2c0bc-4025-4a3f-a7c0-06a574b0eb54', container=None, content=[
+# ThinkingBlock(signature='4be2c0bc-4025-4a3f-a7c0-06a574b0eb54', thinking='The user is asking "Who are you?" Let me introduce myself.', 
+# type='thinking'), TextBlock(citations=None, text='你好！我是 **Claude**，由 Anthropic 开发的 AI 助手。\n\n我在这里以**编码代理（Coding Agent）**
+# 的身份运行，当前工作目录是 `D:\\code\\learn_claude_code\\learn-claude-code`。\n\n我可以帮助你：\n\n1. **编写、修改和调试代码**\n2. **阅读和分析文件
+# **\n3. **运行命令和脚本**\n4. **回答技术问题**\n5. **完成各种开发相关的任务**\n\n我有访问文件系统、运行 shell 命令的工具，可以高效地协助你完成编程工作
+# 。\n\n请问有什么我可以帮你的吗？😊', type='text')], model='deepseek-v4-flash', role='assistant', stop_details=None, stop_reason='end_turn', st
+# op_sequence=None, type='message', usage=Usage(cache_creation=None, cache_creation_input_tokens=0, cache_read_input_tokens=0, inference_geo=N
+# one, input_tokens=535, output_tokens=140, output_tokens_details=None, server_tool_use=None, service_tier='standard'))
 
 if __name__ == "__main__":
     print("s02: Tool Use — 在 s01 基础上加了 4 个工具")

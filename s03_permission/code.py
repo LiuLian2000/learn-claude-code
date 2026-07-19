@@ -157,6 +157,8 @@ def check_deny_list(command: str) -> str | None:
 
 # Gate 2: Rule matching — context-dependent checks
 PERMISSION_RULES = [
+    # 如果path已经是绝对路径会丢弃前面的wordir wordir / path 这种用法是路径拼接
+    # 如果已经是绝对路径，后面的is_relative会检查是不是当前目录下的
     {"tools": ["write_file", "edit_file"],
      "check": lambda args: not (WORKDIR / args.get("path", "")).resolve().is_relative_to(WORKDIR),
      "message": "Writing outside workspace"},
@@ -182,11 +184,13 @@ def ask_user(tool_name: str, args: dict, reason: str) -> str:
 
 # Pipeline: all three gates chained
 def check_permission(block) -> bool:
+    # 这里是强制禁止的操作，只有bash里面会有
     if block.name == "bash":
         reason = check_deny_list(block.input.get("command", ""))
         if reason:
             print(f"\n\033[31m⛔ {reason}\033[0m")
             return False
+    # 用户自己选择是否接受的操作 包含bash一些可能有危险的操作
     reason = check_rules(block.name, block.input)
     if reason:
         decision = ask_user(block.name, block.input, reason)
@@ -219,6 +223,8 @@ def agent_loop(messages: list):
 
             # s03 change: run through permission pipeline before executing
             if not check_permission(block):
+
+                #如果被拒绝了还要在回复里加上
                 results.append({"type": "tool_result", "tool_use_id": block.id,
                                 "content": "Permission denied."})
                 continue

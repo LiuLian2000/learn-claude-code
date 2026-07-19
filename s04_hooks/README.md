@@ -267,6 +267,23 @@ CC 的 `HookResult`（`types/hooks.ts:260-275`）有 14 个字段，以下是常
 
 CC 的 Stop hooks 有一个防无限循环机制（`query.ts:212,1300`）：`stopHookActive` 状态字段。当 stop hooks 产生 blockingError 时，循环带 `stopHookActive: true` 重入下一轮。后续迭代中 stop hooks 看到这个标志就不会再次触发。这防止了一个永不停机的 bug：模型自纠后 stop hook 再次报错 → 模型再自纠 → stop hook 再报错...
 
+
+
+### 1. 触发场景
+
+Stop Hook 是用来校验本轮输出是否合规、是否需要拦截终止的钩子：
+
+1. Agent 生成内容 → 执行 Stop Hook 校验
+2. 校验不通过，抛出 `blockingError`（拦截错误，代表当前输出非法，需要让模型修正后重新生成）
+3. 如果没有 `stopHookActive` 标记： 模型收到错误后自动自纠重生成 → 再次走 Stop Hook 校验 → 再次报错拦截 → 模型再改…… 无限往复，程序卡死永不退出，就是文档里说的永不停机死循环 Bug。
+
+### 2. 标记运行逻辑
+
+1. 第一轮 Stop Hook 拦截报错时，会把全局状态 `stopHookActive = true`；
+2. 开启下一轮生成重试；
+3. 新一轮进入 Stop Hook 前置判断：只要检测到 `stopHookActive` 已经为 true，**直接跳过本次 Stop Hook 校验**，不再二次拦截抛错；
+4. 本轮重试无论结果好坏，本轮流程走完后该标记会重置，不影响后续正常流程。
+
 ### 五、hook_stopped_continuation
 
 PostToolUse hooks 返回 `preventContinuation: true` 时，会产生一个 `hook_stopped_continuation` 附件（`toolHooks.ts:117-130`）。query.ts（L1388-1393）检测到后设置 `shouldPreventContinuation = true`，循环退出。这是 "hook 优雅地让 Agent 停机" 的机制，不是崩溃，是完成。
